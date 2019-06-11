@@ -21,6 +21,14 @@ There are two user stories here.
 
 Here's how you can do this with a Gemma M0.
 
+Unit Testing
+============
+
+::
+
+    PYTHONPATH=.:mocks pytest tests.py
+
+
 TODO
 ====
 

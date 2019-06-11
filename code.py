@@ -87,41 +87,41 @@ color_started = time.monotonic()
 color = 0
 message = Morse("... --- ...")
 
-button_down = None
-
-while True:
-    now = time.monotonic()
-    if mode == QUIET:
-        if now - color_started > CYCLE_SECONDS / 256:
-            dot[0] = wheel(color)
-            color = (color + 1) % 256
-            dot.show()
-            color_started = now
-    else:
-        message.next()
-
-    # Use A0 & A2 as capacitive touch to turn on internal LED
-    if touch0.value and touch2.value and button_down is None:
-        button_down = now
-        led.value = True
-    elif (touch0.value and touch2.value
-          and button_down
-          and now - button_down > 0.20
-    ):
-        led.value = False
-    elif (
-            not (touch0.value or touch2.value)
-            and button_down
-            and now - button_down > 0.20
-    ):
-        led.value = False
-        button_down = None
-        mode = QUIET if mode == SOS else SOS
+if __name__ == "__main__":
+    button_down = None
+    while True:
+        now = time.monotonic()
         if mode == QUIET:
-            color_started = now
-            color = 0
-            print("A0 & A2 touched - Quiet")
-        elif mode == SOS:
-            sos_started = now
-            print("A0 & A2 touched - SOS")
-            message.start()
+            if now - color_started > CYCLE_SECONDS / 256:
+                dot[0] = wheel(color)
+                color = (color + 1) % 256
+                dot.show()
+                color_started = now
+        else:
+            message.next()
+
+        # Use A0 & A2 as capacitive touch to turn on internal LED
+        if touch0.value and touch2.value and button_down is None:
+            button_down = now
+            led.value = True
+        elif (touch0.value and touch2.value
+              and button_down
+              and now - button_down > 0.20
+        ):
+            led.value = False
+        elif (
+                not (touch0.value or touch2.value)
+                and button_down
+                and now - button_down > 0.20
+        ):
+            led.value = False
+            button_down = None
+            mode = QUIET if mode == SOS else SOS
+            if mode == QUIET:
+                color_started = now
+                color = 0
+                print("A0 & A2 touched - Quiet")
+            elif mode == SOS:
+                sos_started = now
+                print("A0 & A2 touched - SOS")
+                message.start()
