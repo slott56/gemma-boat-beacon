@@ -21,6 +21,24 @@ There are two user stories here.
 
 Here's how you can do this with a Gemma M0.
 
+Finite State Automata
+=====================
+
+The code makes extensive use of the **State** design pattern. It shows two implementations of stateful processing.
+
+-   The display has time-based state changes. This involves a fairly complex tree of class definitions.
+    Each object is provided a ``now()`` with the current time. The subclasses of ``Display`` all transition
+    from ``running`` to ``not running`` when some time has expired.
+
+-   A ``Sequence`` subclass shares the ``now()`` method, but can advance through different states
+    of display. The time is pushed down into subordinate objects until the finish running. Then
+    an ``advance()`` method is used to move to the next display.
+
+-   The button input has a touch-sensor-based state changes. The ``ButtonPair`` class hierarchy
+    tracks touches on two of the touchpads. This uses touch to move to ``ButtonDown``. When released,
+    it moves to ``ButtonDownUp``. Once this is consumed, the state can be reset to the
+    starting state of ``ButtonUp``.
+
 TODO
 ====
 

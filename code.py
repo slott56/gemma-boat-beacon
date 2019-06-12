@@ -1,8 +1,8 @@
 # Gemma IO demo
 # Adafruit CircuitPython 4.0.0-beta.7 on 2019-04-13; Adafruit CircuitPlayground Express with samd21g18
+# V2 -- better FSA design.
 
 from digitalio import DigitalInOut, Direction, Pull
-from analogio import AnalogIn, AnalogOut
 from touchio import TouchIn
 import adafruit_dotstar as dotstar
 import board
@@ -19,109 +19,210 @@ led.direction = Direction.OUTPUT
 touch0 = TouchIn(board.A0)
 touch2 = TouchIn(board.A2)
 
-
-def wheel(pos):
-    """Input a value 0 to 255 to get a color value.
-    The colours are a transition r - g - b - back to r."""
-    if (pos < 0):
-        return [0, 0, 0]
-    if (pos > 255):
-        return [0, 0, 0]
-    if (pos < 85):
-        return [int(pos * 3), int(255 - (pos * 3)), 0]
-    elif (pos < 170):
-        pos -= 85
-        return [int(255 - pos * 3), 0, int(pos * 3)]
-    else:
-        pos -= 170
-        return [0, int(pos * 3), int(255 - pos * 3)]
-
-
 RED = (255, 0, 0)
 OFF = (0, 0, 0)
 
+class Display:
+    def __init__(self, duration):
+        self.duration = duration
+        self.started = None
+        self.elapsed = None
+    def start(self, clock):
+        self.started = clock
+    @property
+    def running(self):
+        return self.elapsed and self.elapsed < self.duration
+    def now(self, clock):
+        self.elapsed = clock-self.started
 
-class Morse:
+class ColorWheel(Display):
+    @staticmethod
+    def pos_color(pos):
+        """Input a value 0 to 255 to get a color value.
+        The colours are a transition g - r - b."""
+        if (pos < 0):
+            return [0, 0, 0]
+        if (pos > 255):
+            return [0, 0, 0]
+        if (pos < 85):
+            return [int(pos * 3), int(255 - (pos*3)), 0]
+        elif (pos < 170):
+            pos -= 85
+            return [int(255 - pos*3), 0, int(pos*3)]
+        else:
+            pos -= 170
+            return [0, int(pos*3), int(255 - pos*3)]
+
+    @property
+    def running(self):
+        return True
+    def now(self, clock):
+        super().now(clock)
+        step = int(256 * (self.elapsed % self.duration) / self.duration)
+        dot[0] = self.pos_color(step)
+        dot.show()
+
+class SignalLevel(Display):
+    """LED Level: Low or High. Uses global ``dot`` LED array."""
+    def __init__(self, duration, color=OFF):
+        super().__init__(duration)
+        self.color = color
+    def start(self, clock):
+        super().start(clock)
+        dot[0] = self.color
+        dot.show()
+
+Low = SignalLevel
+High = SignalLevel
+
+class Sequence(Display):
+    """Duration a consequence of the sequence of steps."""
+    def __init__(self, *steps):
+        super().__init__(None)
+        self.steps = steps
+        self.pos = None
+        self.current = None
+    def start(self, clock):
+        super().start(clock)
+        self.pos = 0
+        self.current= self.steps[self.pos]
+        self.current.start(clock)
+    @property
+    def running(self):
+        return self.pos != len(self.steps)
+    def now(self, clock):
+        super().now(clock)
+        self.current.now(clock)
+        if not self.current.running:
+            self.advance(clock)
+    def advance(self, clock):
+        self.pos = self.pos + 1
+        if self.running:
+            self.current = self.steps[self.pos]
+            self.current.start(clock)
+
+class MorseElement(Sequence):
+    """
+    Superclass of Morse code elements: dot, dash, and space.
+    """
+    length = None
+    color = OFF
+    def __init__(self, pace):
+        super().__init__(Low(pace), High(pace*self.length, self.color))
+
+class Dot(MorseElement):
+    length = 1
+    color = RED
+
+class Dash(MorseElement):
+    length = 3
+    color = RED
+
+class Space(MorseElement):
+    length = 2
+    color = OFF
+
+class End(MorseElement):
+    length = 7
+    color = OFF
+
+class Morse(Sequence):
     PACE = 0.2
     CHARS = {
-        '.': (1, RED),
-        '-': (3, RED),
-        ' ': (2, OFF),
+        '.': Dot,
+        '-': Dash,
+        ' ': Space,
     }
-
     def __init__(self, text):
-        self.text = text
+        elements = [Morse.CHARS[c](self.PACE) for c in text] + [End(self.PACE)]
+        super().__init__(*elements)
+    def advance(self, clock):
+        self.pos = (self.pos + 1) % len(self.steps)
+        self.current = self.steps[self.pos]
+        self.current.start(clock)
 
-    def start(self):
-        dot[0] = OFF
-        dot.show()
-        self.time = time.monotonic()
-        self.pos = 0
+class ButtonPairState:
+    """Both or neither. Consume a down-up event. A kind of queue"""
+    pressed = False
+    @staticmethod
+    def read(bp):
+        pass
 
-    def next(self):
-        if self.pos == len(self.text):
-            dot[0] = OFF
-            dot.show()
-            time.sleep(Morse.PACE * 7)
-            self.pos = 0
+class ButtonPairUp(ButtonPairState):
+    @staticmethod
+    def read(bp):
+        if bp.b1.value and bp.b2.value:
+            bp.led.value = True
+            ButtonPairDown.started = bp.now
+            return ButtonPairDown
+        return ButtonPairUp
+
+class ButtonPairDown(ButtonPairState):
+    started = None
+    @staticmethod
+    def read(bp):
+        if not bp.b1.value and not bp.b2.value:
+            bp.led.value = False
+            return ButtonPairDownUp
         else:
-            delay, dot[0] = Morse.CHARS[self.text[self.pos]]
-            dot.show()
-            time.sleep(Morse.PACE * delay)
-            dot[0] = OFF
-            dot.show()
-            time.sleep(Morse.PACE)
-            self.pos += 1
+            if bp.now - ButtonPairDown.started > 0.25:
+                bp.led.value = False
+        return ButtonPairDown
 
+class ButtonPairDownUp(ButtonPairState):
+    pressed = True
+    @staticmethod
+    def read(bp):
+        return ButtonPairDownUp
+
+class ButtonPair:
+    def __init__(self, b1, b2, led):
+        self.b1 = b1
+        self.b2 = b2
+        self.led = led
+        self.state = ButtonPairUp
+    def press(self, now):
+        self.now = now
+        self.state = self.state.read(self)
+        if self.state.pressed:
+            # Conumed!
+            self.state = ButtonPairUp
+            return True
 
 CYCLE_SECONDS = 24  # seconds
 
 # States
 QUIET = 0
-SOS = 1
+COLOR = 1
+SOS = 2
 
-# Initialization
-mode = QUIET
-sos_started = None
-color_started = time.monotonic()
-color = 0
-message = Morse("... --- ...")
+if __name__ == "__main__":
+    # Initialization
+    wheel = ColorWheel(26)
+    message = Morse("... --- ...")
+    mode = COLOR
+    wheel.start(time.monotonic())
+    buttons = ButtonPair(touch0, touch2, led)
 
-button_down = None
-
-while True:
-    now = time.monotonic()
-    if mode == QUIET:
-        if now - color_started > CYCLE_SECONDS / 256:
-            dot[0] = wheel(color)
-            color = (color + 1) % 256
-            dot.show()
-            color_started = now
-    else:
-        message.next()
-
-    # Use A0 & A2 as capacitive touch to turn on internal LED
-    if touch0.value and touch2.value and button_down is None:
-        button_down = now
-        led.value = True
-    elif (touch0.value and touch2.value
-          and button_down
-          and now - button_down > 0.20
-    ):
-        led.value = False
-    elif (
-            not (touch0.value or touch2.value)
-            and button_down
-            and now - button_down > 0.20
-    ):
-        led.value = False
-        button_down = None
-        mode = QUIET if mode == SOS else SOS
+    while True:
+        now = time.monotonic()
         if mode == QUIET:
-            color_started = now
-            color = 0
-            print("A0 & A2 touched - Quiet")
-        elif mode == SOS:
-            sos_started = now
-            print("A0 & A2 touched - SOS")
-            message.start()
+            pass
+        elif mode == COLOR:
+            wheel.now(now)
+        else:
+            message.now(now)
+
+        if buttons.press(now):
+            if mode == QUIET:
+                mode = COLOR
+                wheel.start(now)
+            elif mode == COLOR:
+                mode = SOS
+                message.start(now)
+            elif mode == SOS:
+                mode = QUIET
+                dot[0] = OFF
+                dot.show()
+            else:
+                print("Bad mode", mode)
