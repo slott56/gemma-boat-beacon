@@ -23,12 +23,15 @@ RED = (255, 0, 0)
 OFF = (0, 0, 0)
 
 class Display:
+    """Superclass for displays. This is actually off, and duration doesn't matter."""
     def __init__(self, duration):
         self.duration = duration
         self.started = None
         self.elapsed = None
     def start(self, clock):
         self.started = clock
+        dot[0] = OFF
+        dot.show()
     @property
     def running(self):
         return self.elapsed and self.elapsed < self.duration
@@ -52,7 +55,6 @@ class ColorWheel(Display):
         else:
             pos -= 170
             return [0, int(pos*3), int(255 - pos*3)]
-
     @property
     def running(self):
         return True
@@ -141,14 +143,15 @@ class Morse(Sequence):
         self.current = self.steps[self.pos]
         self.current.start(clock)
 
-class ButtonPairState:
-    """Both or neither. Consume a down-up event. A kind of queue"""
-    pressed = False
-    @staticmethod
-    def read(bp):
-        pass
+# class ButtonPairState:
+#     """Candidate superclass for ButtonPair states"""
+#     pressed = False
+#     @staticmethod
+#     def read(bp):
+#         pass
 
-class ButtonPairUp(ButtonPairState):
+class ButtonPairUp:
+    pressed = False
     @staticmethod
     def read(bp):
         if bp.b1.value and bp.b2.value:
@@ -157,7 +160,8 @@ class ButtonPairUp(ButtonPairState):
             return ButtonPairDown
         return ButtonPairUp
 
-class ButtonPairDown(ButtonPairState):
+class ButtonPairDown:
+    pressed = False
     started = None
     @staticmethod
     def read(bp):
@@ -169,7 +173,7 @@ class ButtonPairDown(ButtonPairState):
                 bp.led.value = False
         return ButtonPairDown
 
-class ButtonPairDownUp(ButtonPairState):
+class ButtonPairDownUp:
     pressed = True
     @staticmethod
     def read(bp):
@@ -181,48 +185,42 @@ class ButtonPair:
         self.b2 = b2
         self.led = led
         self.state = ButtonPairUp
+
     def press(self, now):
         self.now = now
         self.state = self.state.read(self)
         if self.state.pressed:
-            # Conumed!
+            # Consumed!
             self.state = ButtonPairUp
             return True
 
-CYCLE_SECONDS = 24  # seconds
+class QuietMode:
+    display = Display(24)  # off
+    @staticmethod
+    def next():
+        return ColorMode
 
-# States
-QUIET = 0
-COLOR = 1
-SOS = 2
+class ColorMode:
+    display = ColorWheel(24)
+    @staticmethod
+    def next():
+        return SOSMode
+
+class SOSMode:
+    display = Morse("... --- ...")
+    @staticmethod
+    def next():
+        return QuietMode
 
 if __name__ == "__main__":
     # Initialization
-    wheel = ColorWheel(26)
-    message = Morse("... --- ...")
-    mode = COLOR
-    wheel.start(time.monotonic())
+    mode = ColorMode
+    mode.display.start(time.monotonic())
     buttons = ButtonPair(touch0, touch2, led)
 
     while True:
         now = time.monotonic()
-        if mode == QUIET:
-            pass
-        elif mode == COLOR:
-            wheel.now(now)
-        else:
-            message.now(now)
-
+        mode.display.now(now)
         if buttons.press(now):
-            if mode == QUIET:
-                mode = COLOR
-                wheel.start(now)
-            elif mode == COLOR:
-                mode = SOS
-                message.start(now)
-            elif mode == SOS:
-                mode = QUIET
-                dot[0] = OFF
-                dot.show()
-            else:
-                print("Bad mode", mode)
+            mode = mode.next()
+            mode.display.start(now)

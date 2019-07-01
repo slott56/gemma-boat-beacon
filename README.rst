@@ -39,6 +39,10 @@ The code makes extensive use of the **State** design pattern. It shows two imple
     it moves to ``ButtonDownUp``. Once this is consumed, the state can be reset to the
     starting state of ``ButtonUp``.
 
+-   The overall operating mode (Color cycle, Red SOS, or Off) is also an automaton defined as three
+    closely-related classes. Each of these classes uses a Display object, and has a function to return
+    the next operating mode when a button press has been detected.
+
 TODO
 ====
 
